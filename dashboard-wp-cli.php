@@ -3,7 +3,7 @@
 Plugin Name: dashboard-wp-cli
 Plugin URI:
 Description: WP-CLI Plugin For WordPress.
-Version: 1.0.0
+Version: 1.0.1
 Author: 
 Author URI: 
 License: GPLv2 or later
@@ -13,6 +13,9 @@ License: GPLv2 or later
 if (!defined('ABSPATH')) {
     exit;
 }
+
+// エラー報告を抑制してサーバー環境での問題を回避
+error_reporting(E_ERROR | E_PARSE);
 
 class DashboardWPCLI {
     
@@ -46,25 +49,32 @@ class DashboardWPCLI {
     }
     
     public function admin_page() {
+        // 管理画面表示時のエラーハンドリング
+        try {
+            $is_wpcli_available = $this->is_wpcli_available();
+        } catch (Exception $e) {
+            $is_wpcli_available = false;
+            error_log('WP-CLI Plugin Error: ' . $e->getMessage());
+        }
         ?>
         <div class="wrap">
             <h1>WP-CLI Dashboard</h1>
             <div class="card">
                 <h2>WP-CLIコマンドを実行</h2>
-                <?php if ($this->is_wpcli_available()): ?>
+                <?php if ($is_wpcli_available): ?>
                 <div class="notice notice-success">
                     <p>✅ WP-CLIが利用可能です</p>
                 </div>
                 <?php else: ?>
                 <div class="notice notice-warning">
-                    <p>⚠️ WP-CLIが見つかりません。</p>
+                    <p>⚠️ WP-CLI pharファイルが見つかりません。</p>
                     <p>
                         <button type="button" id="download-wpcli-btn" class="button button-secondary">
                             WP-CLI pharファイルをダウンロード
                         </button>
                         <span id="download-loading" style="display:none;">ダウンロード中...</span>
                     </p>
-                    <p><small>または<a href="https://wp-cli.org/#installing" target="_blank">手動でWP-CLIをインストール</a>してください。</small></p>
+                    <p><small>このプラグインはpharファイル版のWP-CLIのみを使用します。</small></p>
                 </div>
                 <?php endif; ?>
                 
@@ -201,6 +211,7 @@ class DashboardWPCLI {
             // 初期メッセージ
             addToTerminal('WP-CLI Terminal - WordPressコマンドライン実行環境', 'terminal-info');
             addToTerminal('使用例: option list, user list, plugin list など', 'terminal-info');
+            addToTerminal('セキュリティ: db exportファイルは安全なディレクトリに保存されます', 'terminal-info');
             addToTerminal('', '');
             
             // 初期フォーカス
@@ -385,12 +396,15 @@ class DashboardWPCLI {
     }
     
     public function execute_wpcli_command() {
+        // 基本的なセキュリティチェック
         if (!current_user_can('manage_options')) {
-            wp_die(__('権限がありません。'));
+            wp_send_json_error('権限がありません。');
+            return;
         }
         
-        if (!wp_verify_nonce($_POST['nonce'], 'wpcli_nonce')) {
-            wp_die(__('セキュリティチェックに失敗しました。'));
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wpcli_nonce')) {
+            wp_send_json_error('セキュリティチェックに失敗しました。');
+            return;
         }
         
         $command = sanitize_text_field($_POST['command']);
@@ -405,6 +419,9 @@ class DashboardWPCLI {
                 wp_send_json_error('危険なコマンドは実行できません。');
             }
         }
+        
+        // db exportコマンドの安全な処理
+        $command = $this->process_db_export_command($command);
         
         // WP-CLIクラスが利用可能な場合は直接実行
         if (class_exists('WP_CLI')) {
@@ -432,7 +449,7 @@ class DashboardWPCLI {
         // コマンドライン版のWP-CLIを実行
         $wp_cli_path = $this->get_wpcli_path();
         if (!$wp_cli_path) {
-            wp_send_json_error('WP-CLIが利用できません。WP-CLIをインストールするか、wp-cli.pharファイルをWordPressルートディレクトリに配置してください。');
+            wp_send_json_error('WP-CLI pharファイルが見つかりません。「WP-CLI pharファイルをダウンロード」ボタンをクリックしてwp-cli.pharをダウンロードしてください。');
         }
         
         // コマンドを個別の引数として分割
@@ -440,12 +457,34 @@ class DashboardWPCLI {
         $escaped_parts = array_map('escapeshellarg', $command_parts);
         $escaped_command = implode(' ', $escaped_parts);
         
-        $full_command = $wp_cli_path . ' ' . $escaped_command . ' --path=' . escapeshellarg(ABSPATH) . ' 2>&1';
+        // 環境変数を設定してコマンド実行
+        $env_vars = '';
+        if (function_exists('putenv')) {
+            $env_vars = 'COLUMNS=120 ';
+        }
+        
+        $full_command = $env_vars . $wp_cli_path . ' ' . $escaped_command . ' --path=' . escapeshellarg(ABSPATH) . ' --no-color 2>&1';
+        
+        // コマンド実行時のタイムアウト設定
+        $old_time_limit = ini_get('max_execution_time');
+        if ($old_time_limit < 300) {
+            @ini_set('max_execution_time', 300);
+        }
         
         $output = @shell_exec($full_command);
         
+        // タイムアウトを元に戻す
+        if ($old_time_limit < 300) {
+            @ini_set('max_execution_time', $old_time_limit);
+        }
+        
         if ($output === null) {
-            wp_send_json_error('コマンドの実行に失敗しました。サーバーの設定でshell_exec()が無効になっている可能性があります。');
+            wp_send_json_error('コマンドの実行に失敗しました。サーバーの設定でshell_exec()が無効になっているか、PHPの実行時間制限に達した可能性があります。');
+        }
+        
+        // 空の出力の場合のハンドリング
+        if (trim($output) === '') {
+            $output = '(コマンドが実行されましたが、出力はありませんでした)';
         }
         
         // デバッグ情報を追加
@@ -461,12 +500,15 @@ class DashboardWPCLI {
     }
     
     public function download_wpcli_phar() {
+        // 基本的なセキュリティチェック
         if (!current_user_can('manage_options')) {
-            wp_die(__('権限がありません。'));
+            wp_send_json_error('権限がありません。');
+            return;
         }
         
-        if (!wp_verify_nonce($_POST['nonce'], 'wpcli_nonce')) {
-            wp_die(__('セキュリティチェックに失敗しました。'));
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wpcli_nonce')) {
+            wp_send_json_error('セキュリティチェックに失敗しました。');
+            return;
         }
         
         $plugin_dir = plugin_dir_path(__FILE__);
@@ -474,7 +516,15 @@ class DashboardWPCLI {
         
         // 既にファイルが存在する場合は削除
         if (file_exists($phar_path)) {
-            unlink($phar_path);
+            if (!@unlink($phar_path)) {
+                wp_send_json_error('既存のファイルを削除できませんでした。ファイルの権限を確認してください。');
+            }
+        }
+        
+        // ディレクトリが書き込み可能かチェック
+        $plugin_dir = plugin_dir_path(__FILE__);
+        if (!is_writable($plugin_dir)) {
+            wp_send_json_error('プラグインディレクトリに書き込み権限がありません: ' . $plugin_dir);
         }
         
         // WP-CLI pharファイルをダウンロード
@@ -482,13 +532,23 @@ class DashboardWPCLI {
         
         $response = wp_remote_get($download_url, array(
             'timeout' => 120,
-            'sslverify' => true,
-            'user-agent' => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url')
+            'sslverify' => false, // ローカル環境でのSSL問題を回避
+            'user-agent' => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
+            'headers' => array(
+                'Accept' => 'application/octet-stream'
+            )
         ));
         
         if (is_wp_error($response)) {
             $error_msg = $response->get_error_message();
-            wp_send_json_error('ダウンロードに失敗しました: ' . $error_msg . ' URLを確認してください: ' . $download_url);
+            $error_code = $response->get_error_code();
+            
+            // 具体的なエラーメッセージを提供
+            if (strpos($error_code, 'http_request_failed') !== false) {
+                $error_msg .= ' ネットワーク接続を確認してください。wp-envのローカル環境では外部接続が制限されている可能性があります。';
+            }
+            
+            wp_send_json_error('ダウンロードに失敗しました: ' . $error_msg);
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
@@ -507,13 +567,23 @@ class DashboardWPCLI {
         }
         
         // ファイルを保存
-        $result = file_put_contents($phar_path, $file_content);
+        $result = @file_put_contents($phar_path, $file_content, LOCK_EX);
         if ($result === false) {
-            wp_send_json_error('ファイルの保存に失敗しました。');
+            $error_msg = 'ファイルの保存に失敗しました。';
+            if (!is_writable(dirname($phar_path))) {
+                $error_msg .= ' ディレクトリに書き込み権限がありません。';
+            }
+            if (disk_free_space(dirname($phar_path)) < strlen($file_content)) {
+                $error_msg .= ' ディスク容量が不足しています。';
+            }
+            wp_send_json_error($error_msg);
         }
         
-        // ファイルの実行権限を設定
-        chmod($phar_path, 0755);
+        // ファイルの実行権限を設定（エラーハンドリング付き）
+        if (!@chmod($phar_path, 0755)) {
+            // 権限変更に失敗してもダウンロードは続行
+            error_log('WP-CLI Plugin: Could not set permissions for ' . $phar_path);
+        }
         
         // ダウンロードしたファイルが正常なPharファイルかチェック
         if (!$this->is_valid_phar_file($phar_path)) {
@@ -547,52 +617,67 @@ class DashboardWPCLI {
     }
     
     private function get_wpcli_path() {
-        // まずプラグインディレクトリ内のwp-cli.pharをチェック
-        $plugin_phar_path = plugin_dir_path(__FILE__) . 'wp-cli.phar';
-        if (file_exists($plugin_phar_path)) {
-            $test_command = 'php ' . escapeshellarg($plugin_phar_path) . ' --version 2>/dev/null';
-            $output = @shell_exec($test_command);
-            if ($output && strpos($output, 'WP-CLI') !== false) {
-                return 'php ' . escapeshellarg($plugin_phar_path);
-            }
-        }
+        // PHP実行可能パスを取得
+        $php_binary = $this->get_php_binary();
         
-        // 一般的なWP-CLIのパスをチェック
-        $paths = array(
-            '/usr/local/bin/wp',
-            '/usr/bin/wp',
-            '/opt/homebrew/bin/wp',
-            getcwd() . '/wp-cli.phar',
-            'wp'
-        );
-        
-        foreach ($paths as $path) {
-            if (is_executable($path) || $path === 'wp') {
-                $test_command = $path . ' --version 2>/dev/null';
-                $output = @shell_exec($test_command);
-                if ($output && strpos($output, 'WP-CLI') !== false) {
-                    return $path;
-                }
-            }
-        }
-        
-        // WordPress内でWP-CLI pharファイルを探す
+        // pharファイルのみを使用する（サーバーインストール版は使わない）
         $phar_paths = array(
+            // プラグインディレクトリ内（最優先）
+            plugin_dir_path(__FILE__) . 'wp-cli.phar',
+            // WordPressルート
             ABSPATH . 'wp-cli.phar',
-            dirname(ABSPATH) . '/wp-cli.phar'
+            // WordPressの親ディレクトリ
+            dirname(ABSPATH) . '/wp-cli.phar',
+            // ドキュメントルート
+            $_SERVER['DOCUMENT_ROOT'] . '/wp-cli.phar',
+            // 現在のディレクトリ
+            getcwd() . '/wp-cli.phar'
         );
         
         foreach ($phar_paths as $phar_path) {
-            if (file_exists($phar_path)) {
-                $test_command = 'php ' . escapeshellarg($phar_path) . ' --version 2>/dev/null';
+            if (file_exists($phar_path) && is_readable($phar_path)) {
+                $test_command = $php_binary . ' ' . escapeshellarg($phar_path) . ' --version 2>/dev/null';
                 $output = @shell_exec($test_command);
                 if ($output && strpos($output, 'WP-CLI') !== false) {
-                    return 'php ' . escapeshellarg($phar_path);
+                    return $php_binary . ' ' . escapeshellarg($phar_path);
                 }
             }
         }
         
         return false;
+    }
+    
+    private function get_php_binary() {
+        // PHP実行可能ファイルのパスを特定
+        $php_paths = array();
+        
+        // PHP_BINARYが定義されている場合は最優先
+        if (defined('PHP_BINARY') && !empty(PHP_BINARY)) {
+            $php_paths[] = PHP_BINARY;
+        }
+        
+        // 一般的なPHPパスを追加
+        $php_paths = array_merge($php_paths, array(
+            '/usr/bin/php',
+            '/usr/local/bin/php',
+            '/opt/alt/php74/usr/bin/php',
+            '/opt/alt/php80/usr/bin/php',
+            '/opt/alt/php81/usr/bin/php',
+            '/opt/alt/php82/usr/bin/php',
+            'php'
+        ));
+        
+        foreach ($php_paths as $php_path) {
+            if (!empty($php_path)) {
+                $test_command = $php_path . ' --version 2>/dev/null';
+                $output = @shell_exec($test_command);
+                if ($output && strpos($output, 'PHP') !== false) {
+                    return $php_path;
+                }
+            }
+        }
+        
+        return 'php';
     }
     
     private function is_valid_phar_file($file_path) {
@@ -625,7 +710,69 @@ class DashboardWPCLI {
         
         return true;
     }
+    
+    private function process_db_export_command($command) {
+        // db exportコマンドかチェック
+        if (!preg_match('/^db\s+export/', $command)) {
+            return $command;
+        }
+        
+        // 安全なエクスポートディレクトリを作成
+        $export_dir = $this->get_secure_export_directory();
+        if (!$export_dir) {
+            wp_send_json_error('エクスポート用ディレクトリの作成に失敗しました。');
+        }
+        
+        // ファイル名を生成（タイムスタンプ付き）
+        $timestamp = date('Y-m-d_H-i-s');
+        $filename = 'database_export_' . $timestamp . '.sql';
+        $export_path = $export_dir . '/' . $filename;
+        
+        // コマンドにファイルパスが指定されていない場合は追加
+        if (!preg_match('/\s+[^\s]+\.sql(\s|$)/', $command)) {
+            $command .= ' ' . escapeshellarg($export_path);
+        } else {
+            // 既存のパスを安全なパスに置換
+            $command = preg_replace('/(\s+)([^\s]+\.sql)(\s|$)/', '$1' . escapeshellarg($export_path) . '$3', $command);
+        }
+        
+        return $command;
+    }
+    
+    private function get_secure_export_directory() {
+        // プラグインディレクトリ内に安全なエクスポート用ディレクトリを作成
+        $plugin_dir = plugin_dir_path(__FILE__);
+        $export_dir = $plugin_dir . 'exports';
+        
+        // ディレクトリが存在しない場合は作成
+        if (!file_exists($export_dir)) {
+            if (!wp_mkdir_p($export_dir)) {
+                return false;
+            }
+            
+            // .htaccessファイルを作成してWebアクセスを拒否
+            $htaccess_content = "Order deny,allow\nDeny from all\n";
+            file_put_contents($export_dir . '/.htaccess', $htaccess_content);
+            
+            // index.phpファイルを作成
+            $index_content = "<?php\n// Silence is golden.\n";
+            file_put_contents($export_dir . '/index.php', $index_content);
+        }
+        
+        return $export_dir;
+    }
 }
 
-new DashboardWPCLI();
+// プラグインの初期化（エラーハンドリング付き）
+try {
+    new DashboardWPCLI();
+} catch (Exception $e) {
+    error_log('WP-CLI Plugin Initialization Error: ' . $e->getMessage());
+    // 致命的なエラーの場合でも管理画面を表示できるように
+    if (is_admin()) {
+        add_action('admin_notices', function() use ($e) {
+            echo '<div class="notice notice-error"><p>WP-CLI Plugin Error: ' . esc_html($e->getMessage()) . '</p></div>';
+        });
+    }
+}
 

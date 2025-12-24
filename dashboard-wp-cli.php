@@ -23,7 +23,9 @@ class DashboardWPCLI {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('wp_ajax_execute_wpcli', array($this, 'execute_wpcli_command'));
         add_action('wp_ajax_download_wpcli', array($this, 'download_wpcli_phar'));
+        add_action('wp_ajax_cleanup_exports', array($this, 'cleanup_exports_directory'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
+        add_action('admin_init', array($this, 'cleanup_on_page_change'));
     }
     
     public function add_admin_menu() {
@@ -44,7 +46,8 @@ class DashboardWPCLI {
         wp_enqueue_script('jquery');
         wp_localize_script('jquery', 'wpcli_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('wpcli_nonce')
+            'nonce' => wp_create_nonce('wpcli_nonce'),
+            'cleanup_nonce' => wp_create_nonce('wpcli_cleanup_nonce')
         ));
     }
     
@@ -141,7 +144,7 @@ class DashboardWPCLI {
                         
                         if (response.success) {
                             var output = '';
-                            if (response.data.output) {
+                            if (response.data.output && response.data.output.trim() !== '' && response.data.output !== '(コマンドが実行されましたが、出力はありませんでした)') {
                                 output = response.data.output;
                             } else {
                                 // デバッグ情報を表示
@@ -150,7 +153,24 @@ class DashboardWPCLI {
                                 output += '完全コマンド: ' + response.data.full_command + '\n';
                                 output += 'WP-CLIパス: ' + response.data.wp_cli_path + '\n';
                                 output += 'WordPress パス: ' + response.data.abspath + '\n';
-                                output += '実行結果: ' + (response.data.output || '(出力なし)');
+                                output += '実行結果: ' + (response.data.output || '(出力なし)') + '\n';
+                                
+                                // db exportの追加デバッグ情報
+                                if (response.data.export_dir) {
+                                    output += '\n--- db export デバッグ情報 ---\n';
+                                    output += 'エクスポートディレクトリ: ' + response.data.export_dir + '\n';
+                                    output += 'ディレクトリ存在: ' + (response.data.export_dir_exists ? 'Yes' : 'No') + '\n';
+                                    output += '書き込み可能: ' + (response.data.export_dir_writable ? 'Yes' : 'No') + '\n';
+                                    output += 'DB Host: ' + response.data.db_host + '\n';
+                                    output += 'DB Name: ' + response.data.db_name + '\n';
+                                    output += 'DB User: ' + response.data.db_user + '\n';
+                                    
+                                    if (response.data.export_files && response.data.export_files.length > 0) {
+                                        output += 'エクスポートされたファイル: ' + response.data.export_files.join(', ') + '\n';
+                                    } else {
+                                        output += 'エクスポートされたファイル: なし\n';
+                                    }
+                                }
                             }
                             
                             // 複数行の出力を処理
@@ -211,11 +231,42 @@ class DashboardWPCLI {
             // 初期メッセージ
             addToTerminal('WP-CLI Terminal - WordPressコマンドライン実行環境', 'terminal-info');
             addToTerminal('使用例: option list, user list, plugin list など', 'terminal-info');
-            addToTerminal('セキュリティ: db exportファイルは安全なディレクトリに保存されます', 'terminal-info');
+            addToTerminal('セキュリティ: db exportファイルは安全なディレクトリに保存され、画面離脱時に自動削除されます', 'terminal-info');
             addToTerminal('', '');
             
             // 初期フォーカス
             $('#terminal-input').focus();
+            
+            // ページ離脱時のクリーンアップ
+            $(window).on('beforeunload pagehide', function() {
+                // exportsフォルダをクリーンアップ
+                $.ajax({
+                    url: wpcli_ajax.ajax_url,
+                    type: 'POST',
+                    async: false, // 同期実行でページ離脱前に確実に実行
+                    data: {
+                        action: 'cleanup_exports',
+                        nonce: wpcli_ajax.cleanup_nonce
+                    }
+                });
+            });
+            
+            // 他のWordPress管理ページへのリンククリック時
+            $('a:not([href*="page=dashboard-wpcli"])').on('click', function(e) {
+                var href = $(this).attr('href');
+                if (href && (href.indexOf('/wp-admin/') !== -1 || href.indexOf('wp-admin') !== -1)) {
+                    // WordPress管理画面内のリンクの場合はクリーンアップ
+                    $.ajax({
+                        url: wpcli_ajax.ajax_url,
+                        type: 'POST',
+                        async: false,
+                        data: {
+                            action: 'cleanup_exports',
+                            nonce: wpcli_ajax.cleanup_nonce
+                        }
+                    });
+                }
+            });
             
             // WP-CLIダウンロード
             $('#download-wpcli-btn').on('click', function() {
@@ -254,25 +305,23 @@ class DashboardWPCLI {
         </script>
         
         <style>
+        /* 全体のレイアウト調整 */
+        .wrap {
+            max-width: none !important;
+            margin: 0 0 0 -20px !important;
+            width: calc(100vw - 160px) !important;
+        }
+
         .card {
             background: #fff;
             border: 1px solid #ccd0d4;
-            border-radius: 4px;
+            border-radius: 0;
+            border-left: none;
+            border-right: none;
             padding: 20px;
-            margin-bottom: 20px;
-        }
-        
-        /* 全体のレイアウト調整 */
-        .wrap {
-            max-width: none;
-            margin: 0;
-            width: 100%;
-        }
-        
-        .card {
-            margin: 0;
-            padding: 20px;
-            width: 100%;
+            margin: 0 -20px 0 0 !important;
+            width: 100% !important;
+            max-width: none !important;
             box-sizing: border-box;
         }
         
@@ -284,20 +333,20 @@ class DashboardWPCLI {
             font-size: 14px;
             border-radius: 8px;
             padding: 20px;
-            margin: 15px -20px 0 -20px;
+            margin-top: 15px;
             min-height: 500px;
             max-height: 80vh;
             display: flex;
             flex-direction: column;
-            width: calc(100% + 40px);
             box-sizing: border-box;
         }
-        
+
         #terminal-output {
             flex: 1;
             overflow-y: auto;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             padding: 10px 0;
+            min-height: 0;
         }
         
         .terminal-line {
@@ -338,15 +387,17 @@ class DashboardWPCLI {
             align-items: center;
             border-top: 1px solid #333;
             padding-top: 10px;
+            flex-shrink: 0;
         }
-        
+
         #terminal-prompt {
             color: #569cd6;
             font-weight: bold;
             margin-right: 8px;
+            flex-shrink: 0;
             user-select: none;
         }
-        
+
         #terminal-input {
             flex: 1;
             background: transparent;
@@ -356,6 +407,7 @@ class DashboardWPCLI {
             font-size: 14px;
             outline: none;
             padding: 0;
+            min-width: 0;
         }
         
         #terminal-input::placeholder {
@@ -366,6 +418,7 @@ class DashboardWPCLI {
             color: #d4d4d4;
             animation: cursor-blink 1s infinite;
             margin-left: 2px;
+            flex-shrink: 0;
         }
         
         @keyframes cursor-blink {
@@ -487,7 +540,7 @@ class DashboardWPCLI {
             $output = '(コマンドが実行されましたが、出力はありませんでした)';
         }
         
-        // デバッグ情報を追加
+        // db exportコマンドの場合は追加のデバッグ情報を収集
         $debug_info = array(
             'command' => $command,
             'full_command' => $full_command,
@@ -495,6 +548,29 @@ class DashboardWPCLI {
             'abspath' => ABSPATH,
             'output' => $output
         );
+        
+        // db exportコマンドの場合のみ追加情報
+        if (strpos($command, 'db export') !== false) {
+            $upload_dir = wp_upload_dir();
+            $export_dir = $upload_dir['basedir'] . '/wp-cli-plugin-export';
+            
+            $debug_info['export_dir'] = $export_dir;
+            $debug_info['export_dir_exists'] = file_exists($export_dir);
+            $debug_info['export_dir_writable'] = is_writable($export_dir);
+            $debug_info['upload_dir_info'] = $upload_dir;
+            
+            // 作成されたファイルがあるかチェック
+            if (file_exists($export_dir)) {
+                $files = scandir($export_dir);
+                $debug_info['export_files'] = array_diff($files, array('.', '..'));
+            }
+            
+            // データベース接続情報の確認
+            $debug_info['db_host'] = DB_HOST;
+            $debug_info['db_name'] = DB_NAME;
+            $debug_info['db_user'] = DB_USER;
+            $debug_info['db_charset'] = DB_CHARSET;
+        }
         
         wp_send_json_success($debug_info);
     }
@@ -723,10 +799,24 @@ class DashboardWPCLI {
             wp_send_json_error('エクスポート用ディレクトリの作成に失敗しました。');
         }
         
+        // ディレクトリの存在と書き込み権限を再確認
+        if (!file_exists($export_dir)) {
+            if (!wp_mkdir_p($export_dir)) {
+                wp_send_json_error('エクスポートディレクトリの作成に失敗しました: ' . $export_dir);
+            }
+        }
+        
+        if (!is_writable($export_dir)) {
+            wp_send_json_error('エクスポートディレクトリに書き込み権限がありません: ' . $export_dir);
+        }
+        
         // ファイル名を生成（タイムスタンプ付き）
         $timestamp = date('Y-m-d_H-i-s');
         $filename = 'database_export_' . $timestamp . '.sql';
         $export_path = $export_dir . '/' . $filename;
+        
+        // パスの正規化（ダブルスラッシュなどを修正）
+        $export_path = str_replace('//', '/', $export_path);
         
         // コマンドにファイルパスが指定されていない場合は追加
         if (!preg_match('/\s+[^\s]+\.sql(\s|$)/', $command)) {
@@ -740,26 +830,115 @@ class DashboardWPCLI {
     }
     
     private function get_secure_export_directory() {
-        // プラグインディレクトリ内に安全なエクスポート用ディレクトリを作成
-        $plugin_dir = plugin_dir_path(__FILE__);
-        $export_dir = $plugin_dir . 'exports';
+        // wp-uploadsディレクトリ内にエクスポート用ディレクトリを作成
+        $upload_dir = wp_upload_dir();
+        $export_dir = $upload_dir['basedir'] . '/wp-cli-plugin-export';
+        
+        // パスの正規化
+        $export_dir = str_replace('\\', '/', $export_dir);
+        $export_dir = rtrim($export_dir, '/');
         
         // ディレクトリが存在しない場合は作成
         if (!file_exists($export_dir)) {
+            // 権限を明示的に設定してディレクトリ作成
             if (!wp_mkdir_p($export_dir)) {
+                error_log('WP-CLI Plugin: Failed to create export directory: ' . $export_dir);
                 return false;
             }
             
+            // ディレクトリの権限を設定
+            @chmod($export_dir, 0755);
+            
             // .htaccessファイルを作成してWebアクセスを拒否
             $htaccess_content = "Order deny,allow\nDeny from all\n";
-            file_put_contents($export_dir . '/.htaccess', $htaccess_content);
+            $htaccess_result = @file_put_contents($export_dir . '/.htaccess', $htaccess_content);
+            if ($htaccess_result === false) {
+                error_log('WP-CLI Plugin: Failed to create .htaccess file in: ' . $export_dir);
+            }
             
             // index.phpファイルを作成
             $index_content = "<?php\n// Silence is golden.\n";
-            file_put_contents($export_dir . '/index.php', $index_content);
+            $index_result = @file_put_contents($export_dir . '/index.php', $index_content);
+            if ($index_result === false) {
+                error_log('WP-CLI Plugin: Failed to create index.php file in: ' . $export_dir);
+            }
+        }
+        
+        // ディレクトリが書き込み可能かチェック
+        if (!is_writable($export_dir)) {
+            @chmod($export_dir, 0755);
+            if (!is_writable($export_dir)) {
+                error_log('WP-CLI Plugin: Export directory is not writable: ' . $export_dir);
+                return false;
+            }
         }
         
         return $export_dir;
+    }
+    
+    public function cleanup_exports_directory() {
+        // セキュリティチェック
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('権限がありません。');
+            return;
+        }
+        
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'wpcli_cleanup_nonce')) {
+            wp_send_json_error('セキュリティチェックに失敗しました。');
+            return;
+        }
+        
+        $upload_dir = wp_upload_dir();
+        $export_dir = $upload_dir['basedir'] . '/wp-cli-plugin-export';
+        
+        if (file_exists($export_dir)) {
+            $this->recursive_remove_directory($export_dir);
+            wp_send_json_success('エクスポートディレクトリを削除しました。');
+        } else {
+            wp_send_json_success('エクスポートディレクトリは存在しません。');
+        }
+    }
+    
+    public function cleanup_on_page_change() {
+        // 現在のページがプラグインページでない場合、exportsフォルダを削除
+        $current_page = isset($_GET['page']) ? $_GET['page'] : '';
+        
+        if (is_admin() && $current_page !== 'dashboard-wpcli') {
+            // セッションでプラグインページにアクセスしていたかチェック
+            if (isset($_SESSION['wpcli_accessed']) || get_transient('wpcli_page_accessed_' . get_current_user_id())) {
+                $upload_dir = wp_upload_dir();
+                $export_dir = $upload_dir['basedir'] . '/wp-cli-plugin-export';
+                
+                if (file_exists($export_dir)) {
+                    $this->recursive_remove_directory($export_dir);
+                }
+                
+                // セッション/トランジェントをクリア
+                unset($_SESSION['wpcli_accessed']);
+                delete_transient('wpcli_page_accessed_' . get_current_user_id());
+            }
+        } elseif ($current_page === 'dashboard-wpcli') {
+            // プラグインページにアクセス中であることを記録
+            set_transient('wpcli_page_accessed_' . get_current_user_id(), true, HOUR_IN_SECONDS);
+        }
+    }
+    
+    private function recursive_remove_directory($dir) {
+        if (!is_dir($dir)) {
+            return false;
+        }
+        
+        $files = array_diff(scandir($dir), array('.', '..'));
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            if (is_dir($path)) {
+                $this->recursive_remove_directory($path);
+            } else {
+                @unlink($path);
+            }
+        }
+        
+        return @rmdir($dir);
     }
 }
 

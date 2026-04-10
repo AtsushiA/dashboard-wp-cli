@@ -1,13 +1,13 @@
 {
-  "name": "wp-cli-plugin",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "dashboard-wp-cli",
+  "version": "1.1.1",
+  "description": "WP-CLI Dashboard Plugin for WordPress",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:zip": "node scripts/build-zip.js"
   },
   "author": "",
-  "license": "ISC",
-  "description": "",
+  "license": "GPL-2.0-or-later",
   "devDependencies": {
     "@wordpress/env": "^10.29.0"
   }

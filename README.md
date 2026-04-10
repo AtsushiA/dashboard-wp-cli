@@ -121,15 +121,16 @@ core version
 ### ファイル構成
 
 ```
-wp-cli-plugin/
+dashboard-wp-cli/
 ├── dashboard-wp-cli.php    # メインプラグインファイル
-├── wp-cli.phar            # WP-CLI実行ファイル（自動ダウンロード）
-├── exports/               # データベースエクスポート用安全ディレクトリ
-│   ├── .htaccess         # Webアクセス拒否設定
-│   ├── index.php         # ディレクトリブラウジング防止
-│   └── *.sql             # エクスポートされたデータベースファイル
-├── .gitignore            # Gitignore設定
-└── README.md             # このファイル
+├── assets/
+│   ├── css/
+│   │   └── admin.css       # 管理画面スタイル
+│   └── js/
+│       └── admin.js        # 管理画面スクリプト
+├── wp-cli.phar             # WP-CLI実行ファイル（自動ダウンロード）
+├── .gitignore              # Gitignore設定
+└── README.md               # このファイル
 ```
 
 ### 主要クラス・機能
@@ -190,6 +191,12 @@ GPL v2 or later
 開発者情報をここに記載
 
 ## 更新履歴
+
+### 1.1.0
+- **Local WP 対応**: php-fpm 検出時に CLI バイナリを自動解決
+- **DB 接続修正**: `mysqli.default_socket` を注入して Local WP の MySQL ソケットに接続
+- **ファイル分割**: CSS・JS をそれぞれ `assets/css/admin.css`・`assets/js/admin.js` に分離
+- **phar 検証強化**: shebang・PHP タグ・ZIP の各形式に対応
 
 ### 1.0.1
 - **セキュリティ強化**: db exportファイルの安全な保存場所

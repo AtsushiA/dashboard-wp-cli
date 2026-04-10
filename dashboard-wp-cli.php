@@ -500,37 +500,50 @@ class DashboardWPCLI {
         }
         
         // コマンドライン版のWP-CLIを実行
-        $wp_cli_path = $this->get_wpcli_path();
-        if (!$wp_cli_path) {
+        $wp_cli = $this->get_wpcli_path();
+        if (!$wp_cli) {
             wp_send_json_error('WP-CLI pharファイルが見つかりません。「WP-CLI pharファイルをダウンロード」ボタンをクリックしてwp-cli.pharをダウンロードしてください。');
         }
-        
+
         // コマンドを個別の引数として分割
         $command_parts = explode(' ', $command);
         $escaped_parts = array_map('escapeshellarg', $command_parts);
         $escaped_command = implode(' ', $escaped_parts);
-        
+
         // 環境変数を設定してコマンド実行
         $env_vars = '';
         if (function_exists('putenv')) {
             $env_vars = 'COLUMNS=120 ';
         }
-        
-        $full_command = $env_vars . $wp_cli_path . ' ' . $escaped_command . ' --path=' . escapeshellarg(ABSPATH) . ' --no-color 2>&1';
-        
+
+        // DB_HOST=localhost の場合、PHP CLI のデフォルトソケットが Local WP のソケットと
+        // 異なるため mysqli.default_socket を -d オプションで上書きする。
+        $php_ini_args = '';
+        if ( ! defined( 'DB_HOST' ) || 'localhost' === DB_HOST ) {
+            $socket = $this->get_db_socket();
+            if ( $socket ) {
+                $php_ini_args = ' -d ' . escapeshellarg( 'mysqli.default_socket=' . $socket );
+            }
+        }
+
+        $full_command = $env_vars . $wp_cli['php'] . $php_ini_args . ' ' . $wp_cli['phar']
+            . ' ' . $escaped_command
+            . ' --path=' . escapeshellarg( ABSPATH )
+            . ' --no-color 2>&1';
+
         // コマンド実行時のタイムアウト設定
         $old_time_limit = ini_get('max_execution_time');
         if ($old_time_limit < 300) {
             @ini_set('max_execution_time', 300);
         }
-        
+
         $output = @shell_exec($full_command);
-        
+
         // タイムアウトを元に戻す
         if ($old_time_limit < 300) {
             @ini_set('max_execution_time', $old_time_limit);
         }
-        
+
         if ($output === null) {
             wp_send_json_error('コマンドの実行に失敗しました。サーバーの設定でshell_exec()が無効になっているか、PHPの実行時間制限に達した可能性があります。');
         }
@@ -682,20 +695,24 @@ class DashboardWPCLI {
         if (class_exists('WP_CLI')) {
             return true;
         }
-        
+
         // コマンドライン版のWP-CLIをチェック
-        $wp_cli_path = $this->get_wpcli_path();
-        if ($wp_cli_path) {
+        $wp_cli = $this->get_wpcli_path();
+        if ($wp_cli) {
             return true;
         }
-        
+
         return false;
     }
-    
+
+    /**
+     * WP-CLI の PHP バイナリと phar パスを返す。
+     * 戻り値: array( 'php' => escaped_php, 'phar' => escaped_phar ) or false
+     */
     private function get_wpcli_path() {
         // PHP実行可能パスを取得
         $php_binary = $this->get_php_binary();
-        
+
         // pharファイルのみを使用する（サーバーインストール版は使わない）
         $phar_paths = array(
             // プラグインディレクトリ内（最優先）
@@ -709,50 +726,78 @@ class DashboardWPCLI {
             // 現在のディレクトリ
             getcwd() . '/wp-cli.phar'
         );
-        
+
+        $escaped_php = escapeshellarg( $php_binary );
+
         foreach ($phar_paths as $phar_path) {
             if (file_exists($phar_path) && is_readable($phar_path)) {
-                $test_command = $php_binary . ' ' . escapeshellarg($phar_path) . ' --version 2>/dev/null';
+                $test_command = $escaped_php . ' ' . escapeshellarg($phar_path) . ' --version 2>/dev/null';
                 $output = @shell_exec($test_command);
-                if ($output && strpos($output, 'WP-CLI') !== false) {
-                    return $php_binary . ' ' . escapeshellarg($phar_path);
+                $phar_ok = ( $output && strpos($output, 'WP-CLI') !== false )
+                    || $this->is_valid_phar_file( $phar_path );
+                if ( $phar_ok ) {
+                    return array(
+                        'php'  => $escaped_php,
+                        'phar' => escapeshellarg( $phar_path ),
+                    );
                 }
             }
         }
-        
+
         return false;
+    }
+
+    /**
+     * DB 接続に使用している Unix ソケットパスを返す（なければ空文字）。
+     */
+    private function get_db_socket() {
+        global $wpdb;
+        $row = $wpdb->get_row( "SHOW VARIABLES LIKE 'socket'" );
+        if ( $row && ! empty( $row->Value ) && file_exists( $row->Value ) ) {
+            return $row->Value;
+        }
+        return '';
     }
     
     private function get_php_binary() {
-        // PHP実行可能ファイルのパスを特定
-        $php_paths = array();
-        
-        // PHP_BINARYが定義されている場合は最優先
-        if (defined('PHP_BINARY') && !empty(PHP_BINARY)) {
-            $php_paths[] = PHP_BINARY;
+        // PHP_BINARY が php-fpm の場合は CLI バイナリを探す（Local WP 対応）。
+        // Local WP では php-fpm は .../sbin/php-fpm、CLI は .../bin/php に存在する。
+        // shell_exec が制限されている環境でも is_executable() で直接確認する。
+        if ( defined( 'PHP_BINARY' ) && ! empty( PHP_BINARY ) ) {
+            $php_bin = PHP_BINARY;
+            if ( basename( $php_bin ) === 'php-fpm' ) {
+                $sbin_dir      = dirname( $php_bin );
+                $base_dir      = dirname( $sbin_dir );
+                $cli_candidate = $base_dir . '/bin/php';
+                if ( is_executable( $cli_candidate ) ) {
+                    return $cli_candidate;
+                }
+            } elseif ( is_executable( $php_bin ) && strpos( $php_bin, 'php-fpm' ) === false ) {
+                return $php_bin;
+            }
         }
-        
-        // 一般的なPHPパスを追加
-        $php_paths = array_merge($php_paths, array(
+
+        // 一般的な PHP CLI パスを追加。
+        $php_paths = array(
             '/usr/bin/php',
             '/usr/local/bin/php',
             '/opt/alt/php74/usr/bin/php',
             '/opt/alt/php80/usr/bin/php',
             '/opt/alt/php81/usr/bin/php',
             '/opt/alt/php82/usr/bin/php',
-            'php'
-        ));
-        
-        foreach ($php_paths as $php_path) {
-            if (!empty($php_path)) {
-                $test_command = $php_path . ' --version 2>/dev/null';
-                $output = @shell_exec($test_command);
-                if ($output && strpos($output, 'PHP') !== false) {
+            'php',
+        );
+
+        foreach ( $php_paths as $php_path ) {
+            if ( ! empty( $php_path ) ) {
+                $test_command = escapeshellarg( $php_path ) . ' --version 2>/dev/null';
+                $output       = @shell_exec( $test_command ); // phpcs:ignore
+                if ( $output && strpos( $output, 'PHP' ) !== false && strpos( $output, 'php-fpm' ) === false ) {
                     return $php_path;
                 }
             }
         }
-        
+
         return 'php';
     }
     
@@ -766,16 +811,17 @@ class DashboardWPCLI {
         if (!$handle) {
             return false;
         }
-        
+
         $magic = fread($handle, 4);
         fclose($handle);
-        
-        // Pharファイルのマジックナンバーは通常 "<?ph" で始まる
-        if (substr($magic, 0, 3) !== '<?p') {
-            // または単純にPHPファイルとして開始する場合
-            if (substr($magic, 0, 2) !== '<?') {
-                return false;
-            }
+
+        // WP-CLI pharファイルは shebang または PHPタグで始まる。
+        $is_shebang = substr( $magic, 0, 2 ) === '#!';
+        $is_php_tag = substr( $magic, 0, 2 ) === '<?';
+        $is_zip     = substr( $magic, 0, 4 ) === "\x50\x4b\x03\x04";
+
+        if ( ! $is_shebang && ! $is_php_tag && ! $is_zip ) {
+            return false;
         }
         
         // ファイル内容に"WP-CLI"文字列が含まれているかチェック（簡易的な検証）

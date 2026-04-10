@@ -42,12 +42,29 @@ class DashboardWPCLI {
         if ($hook !== 'tools_page_dashboard-wpcli') {
             return;
         }
-        
-        wp_enqueue_script('jquery');
-        wp_localize_script('jquery', 'wpcli_ajax', array(
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('wpcli_nonce'),
-            'cleanup_nonce' => wp_create_nonce('wpcli_cleanup_nonce')
+
+        $plugin_url = plugin_dir_url(__FILE__);
+        $plugin_path = plugin_dir_path(__FILE__);
+
+        wp_enqueue_style(
+            'dashboard-wpcli-admin',
+            $plugin_url . 'assets/css/admin.css',
+            array(),
+            filemtime($plugin_path . 'assets/css/admin.css')
+        );
+
+        wp_enqueue_script(
+            'dashboard-wpcli-admin',
+            $plugin_url . 'assets/js/admin.js',
+            array('jquery'),
+            filemtime($plugin_path . 'assets/js/admin.js'),
+            true
+        );
+
+        wp_localize_script('dashboard-wpcli-admin', 'wpcli_ajax', array(
+            'ajax_url'      => admin_url('admin-ajax.php'),
+            'nonce'         => wp_create_nonce('wpcli_nonce'),
+            'cleanup_nonce' => wp_create_nonce('wpcli_cleanup_nonce'),
         ));
     }
     
@@ -85,366 +102,15 @@ class DashboardWPCLI {
                     <div id="terminal-output"></div>
                     <div id="terminal-input-line">
                         <span id="terminal-prompt">wp&gt; </span>
-                        <input type="text" 
-                               id="terminal-input" 
-                               autocomplete="off" 
+                        <input type="text"
+                               id="terminal-input"
+                               autocomplete="off"
                                placeholder="WP-CLIコマンドを入力してください (例: option list)" />
                         <span id="terminal-cursor">_</span>
                     </div>
                 </div>
             </div>
         </div>
-        
-        <script type="text/javascript">
-        jQuery(document).ready(function($) {
-            var commandHistory = [];
-            var historyIndex = -1;
-            var isExecuting = false;
-            
-            // ターミナルにテキストを追加
-            function addToTerminal(text, className) {
-                className = className || '';
-                var $output = $('#terminal-output');
-                var $line = $('<div class="terminal-line ' + className + '"></div>').text(text);
-                $output.append($line);
-                $output.scrollTop($output[0].scrollHeight);
-            }
-            
-            // プロンプト行を追加
-            function addPromptLine(command) {
-                addToTerminal('wp> ' + command, 'terminal-command');
-            }
-            
-            // WP-CLIコマンド実行
-            function executeCommand(command) {
-                if (isExecuting || !command.trim()) {
-                    return;
-                }
-                
-                isExecuting = true;
-                addPromptLine(command);
-                addToTerminal('実行中...', 'terminal-loading');
-                $('#terminal-input').prop('disabled', true);
-                
-                // コマンド履歴に追加
-                commandHistory.push(command);
-                historyIndex = commandHistory.length;
-                
-                $.ajax({
-                    url: wpcli_ajax.ajax_url,
-                    type: 'POST',
-                    data: {
-                        action: 'execute_wpcli',
-                        command: command,
-                        nonce: wpcli_ajax.nonce
-                    },
-                    success: function(response) {
-                        // "実行中..." の行を削除
-                        $('#terminal-output .terminal-loading').last().remove();
-                        
-                        if (response.success) {
-                            var output = '';
-                            if (response.data.output && response.data.output.trim() !== '' && response.data.output !== '(コマンドが実行されましたが、出力はありませんでした)') {
-                                output = response.data.output;
-                            } else {
-                                // デバッグ情報を表示
-                                output = 'デバッグ情報:\n';
-                                output += 'コマンド: ' + response.data.command + '\n';
-                                output += '完全コマンド: ' + response.data.full_command + '\n';
-                                output += 'WP-CLIパス: ' + response.data.wp_cli_path + '\n';
-                                output += 'WordPress パス: ' + response.data.abspath + '\n';
-                                output += '実行結果: ' + (response.data.output || '(出力なし)') + '\n';
-                                
-                                // db exportの追加デバッグ情報
-                                if (response.data.export_dir) {
-                                    output += '\n--- db export デバッグ情報 ---\n';
-                                    output += 'エクスポートディレクトリ: ' + response.data.export_dir + '\n';
-                                    output += 'ディレクトリ存在: ' + (response.data.export_dir_exists ? 'Yes' : 'No') + '\n';
-                                    output += '書き込み可能: ' + (response.data.export_dir_writable ? 'Yes' : 'No') + '\n';
-                                    output += 'DB Host: ' + response.data.db_host + '\n';
-                                    output += 'DB Name: ' + response.data.db_name + '\n';
-                                    output += 'DB User: ' + response.data.db_user + '\n';
-                                    
-                                    if (response.data.export_files && response.data.export_files.length > 0) {
-                                        output += 'エクスポートされたファイル: ' + response.data.export_files.join(', ') + '\n';
-                                    } else {
-                                        output += 'エクスポートされたファイル: なし\n';
-                                    }
-                                }
-                            }
-                            
-                            // 複数行の出力を処理
-                            output.split('\n').forEach(function(line) {
-                                addToTerminal(line, 'terminal-output-line');
-                            });
-                        } else {
-                            addToTerminal('エラー: ' + response.data, 'terminal-error');
-                        }
-                    },
-                    error: function() {
-                        $('#terminal-output .terminal-loading').last().remove();
-                        addToTerminal('通信エラーが発生しました。', 'terminal-error');
-                    },
-                    complete: function() {
-                        isExecuting = false;
-                        $('#terminal-input').prop('disabled', false).focus();
-                    }
-                });
-            }
-            
-            // Enterキーでコマンド実行
-            $('#terminal-input').on('keydown', function(e) {
-                var $input = $(this);
-                
-                if (e.keyCode === 13) { // Enter
-                    e.preventDefault();
-                    var command = $input.val().trim();
-                    if (command) {
-                        executeCommand(command);
-                        $input.val('');
-                    }
-                } else if (e.keyCode === 38) { // 上矢印 - 履歴を戻る
-                    e.preventDefault();
-                    if (historyIndex > 0) {
-                        historyIndex--;
-                        $input.val(commandHistory[historyIndex] || '');
-                    }
-                } else if (e.keyCode === 40) { // 下矢印 - 履歴を進む
-                    e.preventDefault();
-                    if (historyIndex < commandHistory.length - 1) {
-                        historyIndex++;
-                        $input.val(commandHistory[historyIndex] || '');
-                    } else {
-                        historyIndex = commandHistory.length;
-                        $input.val('');
-                    }
-                }
-            });
-            
-            // ターミナル領域をクリックしたときに入力欄にフォーカス
-            $('#terminal-container').on('click', function() {
-                if (!isExecuting) {
-                    $('#terminal-input').focus();
-                }
-            });
-            
-            // 初期メッセージ
-            addToTerminal('WP-CLI Terminal - WordPressコマンドライン実行環境', 'terminal-info');
-            addToTerminal('使用例: option list, user list, plugin list など', 'terminal-info');
-            addToTerminal('セキュリティ: db exportファイルは安全なディレクトリに保存され、画面離脱時に自動削除されます', 'terminal-info');
-            addToTerminal('', '');
-            
-            // 初期フォーカス
-            $('#terminal-input').focus();
-            
-            // ページ離脱時のクリーンアップ
-            $(window).on('beforeunload pagehide', function() {
-                // exportsフォルダをクリーンアップ
-                $.ajax({
-                    url: wpcli_ajax.ajax_url,
-                    type: 'POST',
-                    async: false, // 同期実行でページ離脱前に確実に実行
-                    data: {
-                        action: 'cleanup_exports',
-                        nonce: wpcli_ajax.cleanup_nonce
-                    }
-                });
-            });
-            
-            // 他のWordPress管理ページへのリンククリック時
-            $('a:not([href*="page=dashboard-wpcli"])').on('click', function(e) {
-                var href = $(this).attr('href');
-                if (href && (href.indexOf('/wp-admin/') !== -1 || href.indexOf('wp-admin') !== -1)) {
-                    // WordPress管理画面内のリンクの場合はクリーンアップ
-                    $.ajax({
-                        url: wpcli_ajax.ajax_url,
-                        type: 'POST',
-                        async: false,
-                        data: {
-                            action: 'cleanup_exports',
-                            nonce: wpcli_ajax.cleanup_nonce
-                        }
-                    });
-                }
-            });
-            
-            // WP-CLIダウンロード
-            $('#download-wpcli-btn').on('click', function() {
-                if (!confirm('WP-CLI pharファイル（約3MB）をダウンロードしますか？')) {
-                    return;
-                }
-                
-                $('#download-wpcli-btn').prop('disabled', true);
-                $('#download-loading').show();
-                
-                $.ajax({
-                    url: wpcli_ajax.ajax_url,
-                    type: 'POST',
-                    data: {
-                        action: 'download_wpcli',
-                        nonce: wpcli_ajax.nonce
-                    },
-                    success: function(response) {
-                        if (response.success) {
-                            alert('WP-CLIのダウンロードが完了しました。ページを再読み込みしてください。');
-                            location.reload();
-                        } else {
-                            alert('ダウンロードに失敗しました: ' + response.data);
-                        }
-                    },
-                    error: function() {
-                        alert('通信エラーが発生しました。');
-                    },
-                    complete: function() {
-                        $('#download-wpcli-btn').prop('disabled', false);
-                        $('#download-loading').hide();
-                    }
-                });
-            });
-        });
-        </script>
-        
-        <style>
-        /* 全体のレイアウト調整 */
-        .wrap {
-            max-width: none !important;
-            margin: 0 0 0 -20px !important;
-            width: calc(100vw - 160px) !important;
-        }
-
-        .card {
-            background: #fff;
-            border: 1px solid #ccd0d4;
-            border-radius: 0;
-            border-left: none;
-            border-right: none;
-            padding: 20px;
-            margin: 0 -20px 0 0 !important;
-            width: 100% !important;
-            max-width: none !important;
-            box-sizing: border-box;
-        }
-        
-        /* ターミナル風スタイル */
-        #terminal-container {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            border-radius: 8px;
-            padding: 20px;
-            margin-top: 15px;
-            min-height: 500px;
-            max-height: 80vh;
-            display: flex;
-            flex-direction: column;
-            box-sizing: border-box;
-        }
-
-        #terminal-output {
-            flex: 1;
-            overflow-y: auto;
-            margin-bottom: 15px;
-            padding: 10px 0;
-            min-height: 0;
-        }
-        
-        .terminal-line {
-            margin: 2px 0;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-        
-        .terminal-command {
-            color: #569cd6;
-            font-weight: bold;
-        }
-        
-        .terminal-output-line {
-            color: #d4d4d4;
-        }
-        
-        .terminal-error {
-            color: #f48771;
-        }
-        
-        .terminal-info {
-            color: #4ec9b0;
-        }
-        
-        .terminal-loading {
-            color: #ffce50;
-            animation: blink 1s infinite;
-        }
-        
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0.3; }
-        }
-        
-        #terminal-input-line {
-            display: flex;
-            align-items: center;
-            border-top: 1px solid #333;
-            padding-top: 10px;
-            flex-shrink: 0;
-        }
-
-        #terminal-prompt {
-            color: #569cd6;
-            font-weight: bold;
-            margin-right: 8px;
-            flex-shrink: 0;
-            user-select: none;
-        }
-
-        #terminal-input {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: #d4d4d4;
-            font-family: 'Courier New', monospace;
-            font-size: 14px;
-            outline: none;
-            padding: 0;
-            min-width: 0;
-        }
-        
-        #terminal-input::placeholder {
-            color: #666;
-        }
-        
-        #terminal-cursor {
-            color: #d4d4d4;
-            animation: cursor-blink 1s infinite;
-            margin-left: 2px;
-            flex-shrink: 0;
-        }
-        
-        @keyframes cursor-blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
-        }
-        
-        /* スクロールバーの見た目を調整 */
-        #terminal-output::-webkit-scrollbar {
-            width: 8px;
-        }
-        
-        #terminal-output::-webkit-scrollbar-track {
-            background: #2d2d2d;
-            border-radius: 4px;
-        }
-        
-        #terminal-output::-webkit-scrollbar-thumb {
-            background: #666;
-            border-radius: 4px;
-        }
-        
-        #terminal-output::-webkit-scrollbar-thumb:hover {
-            background: #888;
-        }
-        </style>
         <?php
     }
     

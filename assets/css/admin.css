@@ -1,0 +1,139 @@
+/* 全体のレイアウト調整 */
+.wrap {
+    max-width: none !important;
+    margin: 0 0 0 -20px !important;
+    width: calc(100vw - 160px) !important;
+}
+
+.card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    padding: 20px;
+    margin: 0 -20px 0 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box;
+}
+
+/* ターミナル風スタイル */
+#terminal-container {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 15px;
+    min-height: 500px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+}
+
+#terminal-output {
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 15px;
+    padding: 10px 0;
+    min-height: 0;
+}
+
+.terminal-line {
+    margin: 2px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.terminal-command {
+    color: #569cd6;
+    font-weight: bold;
+}
+
+.terminal-output-line {
+    color: #d4d4d4;
+}
+
+.terminal-error {
+    color: #f48771;
+}
+
+.terminal-info {
+    color: #4ec9b0;
+}
+
+.terminal-loading {
+    color: #ffce50;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+
+#terminal-input-line {
+    display: flex;
+    align-items: center;
+    border-top: 1px solid #333;
+    padding-top: 10px;
+    flex-shrink: 0;
+}
+
+#terminal-prompt {
+    color: #569cd6;
+    font-weight: bold;
+    margin-right: 8px;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+#terminal-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: #d4d4d4;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    outline: none;
+    padding: 0;
+    min-width: 0;
+}
+
+#terminal-input::placeholder {
+    color: #666;
+}
+
+#terminal-cursor {
+    color: #d4d4d4;
+    animation: cursor-blink 1s infinite;
+    margin-left: 2px;
+    flex-shrink: 0;
+}
+
+@keyframes cursor-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+/* スクロールバーの見た目を調整 */
+#terminal-output::-webkit-scrollbar {
+    width: 8px;
+}
+
+#terminal-output::-webkit-scrollbar-track {
+    background: #2d2d2d;
+    border-radius: 4px;
+}
+
+#terminal-output::-webkit-scrollbar-thumb {
+    background: #666;
+    border-radius: 4px;
+}
+
+#terminal-output::-webkit-scrollbar-thumb:hover {
+    background: #888;
+}

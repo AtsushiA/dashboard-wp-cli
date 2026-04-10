@@ -192,6 +192,11 @@ GPL v2 or later
 
 ## 更新履歴
 
+### 1.1.1
+- **コーディング規約対応**: WordPress Coding Standards (WPCS) に完全準拠
+- **入力サニタイズ強化**: `wp_unslash()` + `sanitize_text_field()` を全スーパーグローバル変数に適用
+- **コード品質向上**: Yoda 記法、`gmdate()`、`set_time_limit()`、`wp_delete_file()` への統一
+
 ### 1.1.0
 - **Local WP 対応**: php-fpm 検出時に CLI バイナリを自動解決
 - **DB 接続修正**: `mysqli.default_socket` を注入して Local WP の MySQL ソケットに接続

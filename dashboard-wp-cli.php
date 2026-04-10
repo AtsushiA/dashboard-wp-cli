@@ -3,7 +3,7 @@
  * Plugin Name: dashboard-wp-cli
  * Plugin URI:
  * Description: WP-CLI Plugin For WordPress.
- * Version: 1.1.0
+ * Version: 1.1.1
  * Author:
  * Author URI:
  * License: GPLv2 or later

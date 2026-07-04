@@ -3,7 +3,7 @@
  * Plugin Name: dashboard-wp-cli
  * Plugin URI:
  * Description: WP-CLI Plugin For WordPress.
- * Version: 1.1.1
+ * Version: 1.2.0
  * Author:
  * Author URI:
  * License: GPLv2 or later
@@ -164,6 +164,28 @@ class DashboardWPCLI {
 			if ( strpos( $command, $dangerous ) !== false ) {
 				wp_send_json_error( '危険なコマンドは実行できません。' );
 			}
+		}
+
+		// WordPress Playground など shell 実行不可の環境では、
+		// ワンタイムトークンを発行してインプロセスランナー（wpcli-runner.php）に委譲する.
+		if ( 'cli' === PHP_SAPI && ! $this->is_shell_exec_working() ) {
+			$phar_path = $this->find_wpcli_phar();
+			if ( ! $phar_path ) {
+				wp_send_json_error( 'WP-CLI pharファイルが見つかりません。「WP-CLI pharファイルをダウンロード」ボタンをクリックしてwp-cli.pharをダウンロードしてください。' );
+			}
+
+			$token = $this->create_runner_token( $command, $phar_path );
+			if ( ! $token ) {
+				wp_send_json_error( '実行用ワンタイムトークンの発行に失敗しました。' );
+			}
+
+			wp_send_json_success(
+				array(
+					'command'      => $command,
+					'runner_url'   => plugins_url( 'wpcli-runner.php', __FILE__ ),
+					'runner_token' => $token,
+				)
+			);
 		}
 
 		// db export コマンドの安全な処理.
@@ -403,13 +425,105 @@ class DashboardWPCLI {
 			return true;
 		}
 
-		// コマンドライン版の WP-CLI をチェック.
-		$wp_cli = $this->get_wpcli_path();
-		if ( $wp_cli ) {
+		// phar ファイルの存在をチェック（shell 実行不可の環境でも判定できるようにする）.
+		if ( $this->find_wpcli_phar() ) {
 			return true;
 		}
 
 		return false;
+	}
+
+	/**
+	 * Return candidate paths for the wp-cli.phar file.
+	 *
+	 * @return string[]
+	 */
+	private function get_phar_candidate_paths() {
+		// phar ファイルのみを使用する（サーバーインストール版は使わない）.
+		return array(
+			plugin_dir_path( __FILE__ ) . 'wp-cli.phar', // プラグインディレクトリ内（最優先）.
+			ABSPATH . 'wp-cli.phar',                     // WordPress ルート.
+			dirname( ABSPATH ) . '/wp-cli.phar',         // WordPress の親ディレクトリ.
+			( isset( $_SERVER['DOCUMENT_ROOT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['DOCUMENT_ROOT'] ) ) : '' ) . '/wp-cli.phar',  // ドキュメントルート.
+			getcwd() . '/wp-cli.phar',                   // 現在のディレクトリ.
+		);
+	}
+
+	/**
+	 * Find a readable and valid wp-cli.phar without relying on shell access.
+	 *
+	 * @return string|false Raw phar path, or false if not found.
+	 */
+	private function find_wpcli_phar() {
+		foreach ( $this->get_phar_candidate_paths() as $phar_path ) {
+			if ( file_exists( $phar_path ) && is_readable( $phar_path ) && $this->is_valid_phar_file( $phar_path ) ) {
+				return $phar_path;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Check whether shell_exec() actually works in this environment.
+	 *
+	 * WordPress Playground (PHP WASM) では shell_exec は定義されているが
+	 * 常に null を返すため、function_exists だけでは判定できない.
+	 *
+	 * @return bool
+	 */
+	private function is_shell_exec_working() {
+		static $works = null;
+		if ( null !== $works ) {
+			return $works;
+		}
+
+		if ( ! function_exists( 'shell_exec' ) ) {
+			$works = false;
+			return $works;
+		}
+
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_shell_exec
+		$output = @shell_exec( 'echo dashboard_wpcli_shell_test' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- disable_functions 環境では warning が出るため抑制する.
+		$works  = is_string( $output ) && false !== strpos( $output, 'dashboard_wpcli_shell_test' );
+
+		return $works;
+	}
+
+	/**
+	 * Create a one-time token file for the in-process runner (wpcli-runner.php).
+	 *
+	 * ランナーは WordPress をロードせずに直接アクセスされるため、
+	 * 認証済みのこのコンテキストで実行内容（argv）を確定させて
+	 * 一時ファイルに保存し、トークンだけをクライアントに返す.
+	 *
+	 * @param string $command   Sanitized WP-CLI command (without leading "wp").
+	 * @param string $phar_path Path to wp-cli.phar.
+	 * @return string|false Token on success, false on failure.
+	 */
+	private function create_runner_token( $command, $phar_path ) {
+		try {
+			$token = bin2hex( random_bytes( 32 ) );
+		} catch ( Exception $e ) {
+			return false;
+		}
+
+		$argv = array_merge(
+			array( 'wp' ),
+			array_values( array_filter( explode( ' ', $command ), 'strlen' ) ),
+			array( '--path=' . ABSPATH, '--no-color' )
+		);
+
+		$payload = array(
+			'argv'    => $argv,
+			'phar'    => $phar_path,
+			'created' => time(),
+		);
+
+		$token_file = sys_get_temp_dir() . '/dashboard-wpcli-' . $token . '.json';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		$written = file_put_contents( $token_file, wp_json_encode( $payload ) );
+
+		return ( false === $written ) ? false : $token;
 	}
 
 	/**
@@ -421,14 +535,7 @@ class DashboardWPCLI {
 		// PHP 実行可能パスを取得.
 		$php_binary = $this->get_php_binary();
 
-		// phar ファイルのみを使用する（サーバーインストール版は使わない）.
-		$phar_paths = array(
-			plugin_dir_path( __FILE__ ) . 'wp-cli.phar', // プラグインディレクトリ内（最優先）.
-			ABSPATH . 'wp-cli.phar',                     // WordPress ルート.
-			dirname( ABSPATH ) . '/wp-cli.phar',         // WordPress の親ディレクトリ.
-			( isset( $_SERVER['DOCUMENT_ROOT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['DOCUMENT_ROOT'] ) ) : '' ) . '/wp-cli.phar',  // ドキュメントルート.
-			getcwd() . '/wp-cli.phar',                   // 現在のディレクトリ.
-		);
+		$phar_paths = $this->get_phar_candidate_paths();
 
 		$escaped_php = escapeshellarg( $php_binary );
 

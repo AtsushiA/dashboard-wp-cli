@@ -18,6 +18,41 @@ jQuery( document ).ready(
 			addToTerminal( 'wp> ' + command, 'terminal-command' );
 		}
 
+		// コマンド実行の後処理（入力欄を再度有効化）
+		function finishExecution() {
+			isExecuting = false;
+			$( '#terminal-input' ).prop( 'disabled', false ).focus();
+		}
+
+		// WordPress Playground などshell実行不可の環境向け:
+		// ワンタイムトークンでインプロセスランナーを呼び出す（2段階目）
+		function runViaPlaygroundRunner(data) {
+			$.ajax(
+				{
+					url: data.runner_url,
+					type: 'POST',
+					data: { token: data.runner_token },
+					dataType: 'text',
+					timeout: 300000,
+					success: function (text) {
+						$( '#terminal-output .terminal-loading' ).last().remove();
+						var output = (text && text.trim() !== '') ? text : '(コマンドが実行されましたが、出力はありませんでした)';
+						output.split( '\n' ).forEach(
+							function (line) {
+								addToTerminal( line, 'terminal-output-line' );
+							}
+						);
+					},
+					error: function (xhr) {
+						$( '#terminal-output .terminal-loading' ).last().remove();
+						var message = (xhr && xhr.responseText) ? xhr.responseText : '通信エラーが発生しました。';
+						addToTerminal( 'エラー: ' + message, 'terminal-error' );
+					},
+					complete: finishExecution
+				}
+			);
+		}
+
 		// WP-CLIコマンド実行
 		function executeCommand(command) {
 			if (isExecuting || ! command.trim()) {
@@ -43,8 +78,15 @@ jQuery( document ).ready(
 						nonce: wpcli_ajax.nonce
 					},
 					success: function (response) {
+						// Playgroundランナーモード: 2段階目のリクエストで実行する
+						if (response.success && response.data && response.data.runner_url && response.data.runner_token) {
+							runViaPlaygroundRunner( response.data );
+							return;
+						}
+
 						// "実行中..." の行を削除
 						$( '#terminal-output .terminal-loading' ).last().remove();
+						finishExecution();
 
 						if (response.success) {
 							var output = '';
@@ -90,10 +132,7 @@ jQuery( document ).ready(
 					error: function () {
 						$( '#terminal-output .terminal-loading' ).last().remove();
 						addToTerminal( '通信エラーが発生しました。', 'terminal-error' );
-					},
-					complete: function () {
-						isExecuting = false;
-						$( '#terminal-input' ).prop( 'disabled', false ).focus();
+						finishExecution();
 					}
 				}
 			);

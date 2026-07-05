@@ -3,7 +3,7 @@
  * Plugin Name: dashboard-wp-cli
  * Plugin URI:
  * Description: WP-CLI Plugin For WordPress.
- * Version: 1.2.0
+ * Version: 1.2.1
  * Author:
  * Author URI:
  * License: GPLv2 or later
@@ -121,6 +121,12 @@ class DashboardWPCLI {
 				</div>
 				<?php endif; ?>
 
+				<?php if ( $this->is_playground_environment() ) : ?>
+				<div class="notice notice-warning">
+					<p>WordPress Playground環境で実行しています。この環境はSQLiteで動作しているため、db コマンド（db export、db optimize など）は使用できません。</p>
+				</div>
+				<?php endif; ?>
+
 				<div id="terminal-container">
 					<div id="terminal-output"></div>
 					<div id="terminal-input-line">
@@ -168,7 +174,12 @@ class DashboardWPCLI {
 
 		// WordPress Playground など shell 実行不可の環境では、
 		// ワンタイムトークンを発行してインプロセスランナー（wpcli-runner.php）に委譲する.
-		if ( 'cli' === PHP_SAPI && ! $this->is_shell_exec_working() ) {
+		if ( $this->is_playground_environment() ) {
+			// Playground は SQLite で動作しており、db コマンドは mysqldump 等に依存するため実行できない.
+			if ( preg_match( '/^db(\s|$)/', $command ) ) {
+				wp_send_json_error( 'WordPress Playground環境ではdbコマンドは使用できません。この環境はSQLiteで動作しているため、mysqldump等に依存するdbコマンド（db export、db optimizeなど）は実行できません。' );
+			}
+
 			$phar_path = $this->find_wpcli_phar();
 			if ( ! $phar_path ) {
 				wp_send_json_error( 'WP-CLI pharファイルが見つかりません。「WP-CLI pharファイルをダウンロード」ボタンをクリックしてwp-cli.pharをダウンロードしてください。' );
@@ -487,6 +498,17 @@ class DashboardWPCLI {
 		$works  = is_string( $output ) && false !== strpos( $output, 'dashboard_wpcli_shell_test' );
 
 		return $works;
+	}
+
+	/**
+	 * Check whether the current request is running in a shell-less environment
+	 * such as WordPress Playground (PHP WASM), where the in-process runner
+	 * (wpcli-runner.php) is used instead of shell_exec().
+	 *
+	 * @return bool
+	 */
+	private function is_playground_environment() {
+		return 'cli' === PHP_SAPI && ! $this->is_shell_exec_working();
 	}
 
 	/**

@@ -209,6 +209,10 @@ GPL v2 or later
 
 ## 更新履歴
 
+### 1.2.1
+- **Playground環境でのdbコマンド制限**: WordPress Playground（SQLite環境）を検出した場合、管理画面に`db`コマンドが使用できない旨の警告を表示
+- **dbコマンド実行時のエラー**: Playground環境で`db`コマンド（`db export`、`db optimize`など）を実行しようとした場合、処理を実行せず分かりやすいエラーメッセージを返すように変更
+
 ### 1.2.0
 - **WordPress Playground 対応**: shell実行不可の環境（PHP WASM）を自動検出し、wp-cli.phar を同一PHPプロセス内で実行するインプロセスランナー（`wpcli-runner.php`）を追加
 - **ワンタイムトークン認可**: ランナーはWordPress非ロードの単独エンドポイントのため、権限・nonce検証済みのAJAXハンドラーが発行する使い捨てトークン（有効期限120秒・実行前削除）でのみ実行可能。コマンド内容はトークン発行時にサーバー側で確定

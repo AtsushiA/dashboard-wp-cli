@@ -18,6 +18,37 @@
 	box-sizing: border-box;
 }
 
+/* ヘッダー行（見出し + ダークモード切り替えボタン） */
+.dashboard-wpcli-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.dashboard-wpcli-theme-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+/*
+ * トグルボタンのアイコン。
+ * 状態表現は aria-pressed に任せ、見た目のアイコンは .is-dark スコープの CSS で
+ * 切り替える（JSの実行タイミングに依存させず、早期の状態反映時もズレないようにする）。
+ * ライト時（=これからダークにできる）は 🌙、ダーク時（=これからライトに戻せる）は ☀️。
+ */
+.dashboard-wpcli-theme-toggle-icon::before {
+	content: '🌙';
+}
+
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-theme-toggle-icon::before {
+	content: '☀️';
+}
+
 /* ターミナル風スタイル */
 #terminal-container {
 	background: #1e1e1e;
@@ -136,4 +167,87 @@
 
 #terminal-output::-webkit-scrollbar-thumb:hover {
 	background: #888;
+}
+
+/*
+ * ダークモード（このプラグイン画面専用のスコープ）
+ * 対象は .dashboard-wpcli-wrap.is-dark 配下の見出し・.card・notice のみ。
+ * #terminal-container 以下はもともとダーク配色のため対象外（変更しない）。
+ * 配色はターミナル部分（#1e1e1e / #d4d4d4 / #569cd6 / #333 等）と同じトーンで統一している。
+ */
+.dashboard-wpcli-wrap.is-dark {
+	--dwpcli-bg: #1e1e1e;
+	--dwpcli-text: #d4d4d4;
+	--dwpcli-heading: #f0f0f0;
+	--dwpcli-border: #333;
+	--dwpcli-accent: #569cd6;
+	--dwpcli-btn-bg: #2d2d2d;
+	--dwpcli-btn-bg-hover: #3a3a3a;
+}
+
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-header {
+	background: var( --dwpcli-bg );
+	/* 暗色の帯がテキストに張り付かないよう余白を持たせ、下の .card と地続きの帯として見せる.
+	   左右の余白と右への -20px は .card と揃え、左端・右端がずれないようにする. */
+	margin: 0 -20px 0 0;
+	padding: 16px 20px;
+	box-sizing: border-box;
+}
+
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-header h1 {
+	color: var( --dwpcli-heading );
+}
+
+.dashboard-wpcli-wrap.is-dark .card {
+	background: var( --dwpcli-bg );
+	border-color: var( --dwpcli-border );
+	color: var( --dwpcli-text );
+}
+
+.dashboard-wpcli-wrap.is-dark .card h2 {
+	color: var( --dwpcli-heading );
+}
+
+.dashboard-wpcli-wrap.is-dark a {
+	color: var( --dwpcli-accent );
+}
+
+.dashboard-wpcli-wrap.is-dark .notice {
+	color: var( --dwpcli-text );
+}
+
+.dashboard-wpcli-wrap.is-dark .notice-success {
+	background: #14301f;
+	border-left-color: #4ec9b0;
+}
+
+.dashboard-wpcli-wrap.is-dark .notice-warning {
+	background: #3a2f10;
+	border-left-color: #ffce50;
+}
+
+.dashboard-wpcli-wrap.is-dark .notice-error {
+	background: #3a1414;
+	border-left-color: #f48771;
+}
+
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-theme-toggle,
+.dashboard-wpcli-wrap.is-dark #download-wpcli-btn {
+	background: var( --dwpcli-btn-bg );
+	border-color: var( --dwpcli-accent );
+	color: var( --dwpcli-text );
+}
+
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-theme-toggle:hover,
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-theme-toggle:focus,
+.dashboard-wpcli-wrap.is-dark #download-wpcli-btn:hover,
+.dashboard-wpcli-wrap.is-dark #download-wpcli-btn:focus {
+	background: var( --dwpcli-btn-bg-hover );
+	color: var( --dwpcli-text );
+}
+
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-theme-toggle:focus,
+.dashboard-wpcli-wrap.is-dark #download-wpcli-btn:focus {
+	outline: 2px solid var( --dwpcli-accent );
+	outline-offset: 1px;
 }

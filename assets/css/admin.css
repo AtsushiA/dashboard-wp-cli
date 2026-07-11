@@ -35,6 +35,20 @@
 	flex-shrink: 0;
 }
 
+/*
+ * トグルボタンのアイコン。
+ * 状態表現は aria-pressed に任せ、見た目のアイコンは .is-dark スコープの CSS で
+ * 切り替える（JSの実行タイミングに依存させず、早期の状態反映時もズレないようにする）。
+ * ライト時（=これからダークにできる）は 🌙、ダーク時（=これからライトに戻せる）は ☀️。
+ */
+.dashboard-wpcli-theme-toggle-icon::before {
+	content: '🌙';
+}
+
+.dashboard-wpcli-wrap.is-dark .dashboard-wpcli-theme-toggle-icon::before {
+	content: '☀️';
+}
+
 /* ターミナル風スタイル */
 #terminal-container {
 	background: #1e1e1e;
@@ -173,6 +187,11 @@
 
 .dashboard-wpcli-wrap.is-dark .dashboard-wpcli-header {
 	background: var( --dwpcli-bg );
+	/* 暗色の帯がテキストに張り付かないよう余白を持たせ、下の .card と地続きの帯として見せる.
+	   左右の余白と右への -20px は .card と揃え、左端・右端がずれないようにする. */
+	margin: 0 -20px 0 0;
+	padding: 16px 20px;
+	box-sizing: border-box;
 }
 
 .dashboard-wpcli-wrap.is-dark .dashboard-wpcli-header h1 {

@@ -231,10 +231,8 @@ jQuery( document ).ready(
 		// ダークモード切り替え機能
 		// 保存先はlocalStorageのみ（サーバー側の新しいAJAXエンドポイントやnonceは追加しない）.
 		var COLOR_SCHEME_STORAGE_KEY = 'dashboardWpcliColorScheme';
-		var $wpcliWrap                = $( '.dashboard-wpcli-wrap' );
-		var $themeToggleBtn           = $( '#dashboard-wpcli-theme-toggle' );
-		var $themeToggleIcon          = $themeToggleBtn.find( '.dashboard-wpcli-theme-toggle-icon' );
-		var $themeToggleLabel         = $themeToggleBtn.find( '.dashboard-wpcli-theme-toggle-label' );
+		var $wpcliWrap               = $( '.dashboard-wpcli-wrap' );
+		var $themeToggleBtn          = $( '#dashboard-wpcli-theme-toggle' );
 
 		// localStorageから保存済みのテーマ設定を取得する（取得できない場合はnullを返す）
 		function getStoredColorScheme() {
@@ -256,13 +254,13 @@ jQuery( document ).ready(
 		}
 
 		// 指定したテーマ（'dark' または 'light'）を画面に反映する
+		// 標準トグルボタンパターン: 状態は aria-pressed のみで表現し、可視ラベルは「ダークモード」固定.
+		// アイコン（🌙/☀️）は .is-dark スコープの CSS で切り替えるため、ここでは操作しない.
 		// #terminal-container 以下はもとからダーク配色のため対象外（クラス付与先は.dashboard-wpcli-wrapのみ）.
 		function applyColorScheme(scheme) {
 			var isDark = ('dark' === scheme);
 			$wpcliWrap.toggleClass( 'is-dark', isDark );
 			$themeToggleBtn.attr( 'aria-pressed', isDark ? 'true' : 'false' );
-			$themeToggleIcon.text( isDark ? '☀️' : '🌙' );
-			$themeToggleLabel.text( isDark ? 'ライトモード' : 'ダークモード' );
 		}
 
 		// ページ読み込み時に保存済みのテーマ設定を反映する

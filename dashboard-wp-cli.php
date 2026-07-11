@@ -102,29 +102,39 @@ class DashboardWPCLI {
 		}
 		?>
 		<div class="wrap dashboard-wpcli-wrap">
-			<script>
-			// ダークモードの初期状態をなるべく早く反映し、ページ読み込み直後に
-			// 一瞬ライト表示になってしまうチラつき（FOUC）を抑える.
-			( function () {
-				try {
-					if ( window.localStorage && 'dark' === window.localStorage.getItem( 'dashboardWpcliColorScheme' ) ) {
-						document.currentScript.parentElement.classList.add( 'is-dark' );
-					}
-				} catch ( e ) {
-					// プライベートブラウジング等でlocalStorageが使用できない場合は何もしない.
-				}
-			} )();
-			</script>
 			<div class="dashboard-wpcli-header">
 				<h1>WP-CLI Dashboard</h1>
 				<button type="button"
 						id="dashboard-wpcli-theme-toggle"
 						class="button dashboard-wpcli-theme-toggle"
 						aria-pressed="false">
-					<span class="dashboard-wpcli-theme-toggle-icon" aria-hidden="true"><?php echo esc_html( '🌙' ); ?></span>
+					<span class="dashboard-wpcli-theme-toggle-icon" aria-hidden="true"></span>
 					<span class="dashboard-wpcli-theme-toggle-label"><?php esc_html_e( 'ダークモード', 'dashboard-wp-cli' ); ?></span>
 				</button>
 			</div>
+			<script>
+			// ダークモードの初期状態をなるべく早く反映し、ページ読み込み直後の
+			// チラつき（FOUC）を抑える.
+			// is-dark の付与と aria-pressed の更新を同時に行い、フッターの jQuery 実行を
+			// 待たずにボタンの状態（押下状態）が背景の明暗とズレないようにする.
+			// aria-pressed をセットするため、ボタンがパース済みになるヘッダーの直後に配置する.
+			( function () {
+				try {
+					if ( window.localStorage && 'dark' === window.localStorage.getItem( 'dashboardWpcliColorScheme' ) ) {
+						var wrap = document.currentScript.closest( '.dashboard-wpcli-wrap' );
+						if ( wrap ) {
+							wrap.classList.add( 'is-dark' );
+							var toggle = wrap.querySelector( '#dashboard-wpcli-theme-toggle' );
+							if ( toggle ) {
+								toggle.setAttribute( 'aria-pressed', 'true' );
+							}
+						}
+					}
+				} catch ( e ) {
+					// プライベートブラウジング等で localStorage が使用できない場合は何もしない.
+				}
+			} )();
+			</script>
 			<div class="card">
 				<h2>WP-CLIコマンドを実行</h2>
 				<?php if ( $is_wpcli_available ) : ?>

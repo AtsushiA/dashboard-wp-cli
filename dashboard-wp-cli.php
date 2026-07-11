@@ -3,10 +3,11 @@
  * Plugin Name: dashboard-wp-cli
  * Plugin URI:
  * Description: WP-CLI Plugin For WordPress.
- * Version: 1.2.1
+ * Version: 1.3.0
  * Author:
  * Author URI:
  * License: GPLv2 or later
+ * Text Domain: dashboard-wp-cli
  *
  * @package DashboardWPCLI
  */
@@ -100,8 +101,30 @@ class DashboardWPCLI {
 			error_log( 'WP-CLI Plugin Error: ' . $e->getMessage() );
 		}
 		?>
-		<div class="wrap">
-			<h1>WP-CLI Dashboard</h1>
+		<div class="wrap dashboard-wpcli-wrap">
+			<script>
+			// ダークモードの初期状態をなるべく早く反映し、ページ読み込み直後に
+			// 一瞬ライト表示になってしまうチラつき（FOUC）を抑える.
+			( function () {
+				try {
+					if ( window.localStorage && 'dark' === window.localStorage.getItem( 'dashboardWpcliColorScheme' ) ) {
+						document.currentScript.parentElement.classList.add( 'is-dark' );
+					}
+				} catch ( e ) {
+					// プライベートブラウジング等でlocalStorageが使用できない場合は何もしない.
+				}
+			} )();
+			</script>
+			<div class="dashboard-wpcli-header">
+				<h1>WP-CLI Dashboard</h1>
+				<button type="button"
+						id="dashboard-wpcli-theme-toggle"
+						class="button dashboard-wpcli-theme-toggle"
+						aria-pressed="false">
+					<span class="dashboard-wpcli-theme-toggle-icon" aria-hidden="true"><?php echo esc_html( '🌙' ); ?></span>
+					<span class="dashboard-wpcli-theme-toggle-label"><?php esc_html_e( 'ダークモード', 'dashboard-wp-cli' ); ?></span>
+				</button>
+			</div>
 			<div class="card">
 				<h2>WP-CLIコマンドを実行</h2>
 				<?php if ( $is_wpcli_available ) : ?>

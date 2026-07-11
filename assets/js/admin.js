@@ -228,6 +228,57 @@ jQuery( document ).ready(
 			}
 		);
 
+		// ダークモード切り替え機能
+		// 保存先はlocalStorageのみ（サーバー側の新しいAJAXエンドポイントやnonceは追加しない）.
+		var COLOR_SCHEME_STORAGE_KEY = 'dashboardWpcliColorScheme';
+		var $wpcliWrap                = $( '.dashboard-wpcli-wrap' );
+		var $themeToggleBtn           = $( '#dashboard-wpcli-theme-toggle' );
+		var $themeToggleIcon          = $themeToggleBtn.find( '.dashboard-wpcli-theme-toggle-icon' );
+		var $themeToggleLabel         = $themeToggleBtn.find( '.dashboard-wpcli-theme-toggle-label' );
+
+		// localStorageから保存済みのテーマ設定を取得する（取得できない場合はnullを返す）
+		function getStoredColorScheme() {
+			try {
+				return window.localStorage.getItem( COLOR_SCHEME_STORAGE_KEY );
+			} catch (e) {
+				// プライベートブラウジング等でlocalStorageが使用できない場合.
+				return null;
+			}
+		}
+
+		// テーマ設定をlocalStorageに保存する（保存できなくても表示上の切り替えは継続する）
+		function setStoredColorScheme(scheme) {
+			try {
+				window.localStorage.setItem( COLOR_SCHEME_STORAGE_KEY, scheme );
+			} catch (e) {
+				// プライベートブラウジング等でlocalStorageが使用できない場合は保存をあきらめる.
+			}
+		}
+
+		// 指定したテーマ（'dark' または 'light'）を画面に反映する
+		// #terminal-container 以下はもとからダーク配色のため対象外（クラス付与先は.dashboard-wpcli-wrapのみ）.
+		function applyColorScheme(scheme) {
+			var isDark = ('dark' === scheme);
+			$wpcliWrap.toggleClass( 'is-dark', isDark );
+			$themeToggleBtn.attr( 'aria-pressed', isDark ? 'true' : 'false' );
+			$themeToggleIcon.text( isDark ? '☀️' : '🌙' );
+			$themeToggleLabel.text( isDark ? 'ライトモード' : 'ダークモード' );
+		}
+
+		// ページ読み込み時に保存済みのテーマ設定を反映する
+		// 保存値が無い初回はライト表示のまま（OSのprefers-color-schemeへの自動追従はしない）.
+		applyColorScheme( 'dark' === getStoredColorScheme() ? 'dark' : 'light' );
+
+		// トグルボタンクリックで表示テーマを切り替える
+		$themeToggleBtn.on(
+			'click',
+			function () {
+				var nextScheme = $wpcliWrap.hasClass( 'is-dark' ) ? 'light' : 'dark';
+				applyColorScheme( nextScheme );
+				setStoredColorScheme( nextScheme );
+			}
+		);
+
 		// WP-CLIダウンロード
 		$( '#download-wpcli-btn' ).on(
 			'click',
